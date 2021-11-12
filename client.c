@@ -1,9 +1,3 @@
-/*
-MT2019114
-Client side:
-socket->connect->send/recv->close
-*/
-
 #include <string.h>
 #include <sys/socket.h> 
 #include <unistd.h> 
@@ -12,6 +6,14 @@ socket->connect->send/recv->close
 #include <stdlib.h> 
 	 
 #define PORT 8000
+
+//This structure is for client is to send the data to the server in the pipe during login and signup
+struct details{
+	char name[50];
+	char password[50];
+	int type;
+	int id;
+};
 
 //------------------------------Function declarations---------------------------------------//
 
@@ -23,25 +25,28 @@ int crud_user(int sock,int choice);
 
 int main(void) { 
 	int sock; 
-    	struct sockaddr_in server; 
-    	char server_reply[50],*server_ip;
+    struct sockaddr_in server; 
+    char server_reply[50],*server_ip;
 	server_ip = "127.0.0.1"; 
      
-    	sock = socket(AF_INET, SOCK_STREAM, 0); 
-    	if (sock == -1) { 
-       	printf("Could not create socket"); 
-    	} 
-    
-    	server.sin_addr.s_addr = inet_addr(server_ip); 
-    	server.sin_family = AF_INET; 
-    	server.sin_port = htons(PORT); 
-   
-    	if (connect(sock, (struct sockaddr*)&server, sizeof(server)) < 0)
-       	perror("connect failed. Error"); 
-    
-	while(client(sock)!=3);
-    	close(sock); 
-    	
+    sock = socket(AF_INET, SOCK_STREAM, 0); 
+    if (sock == -1) { 
+    	perror("Could not create socket"); 
+    } 
+	else{
+		server.sin_addr.s_addr = inet_addr(server_ip); 
+		server.sin_family = AF_INET; 
+		server.sin_port = htons(PORT); 
+
+		if (connect(sock, (struct sockaddr*)&server, sizeof(server)) < 0){
+			perror("connect failed. Error\n"); 
+			return 0;
+		}
+		while(client(sock)!=3);
+		close(sock); 
+			
+	}
+
 	return 0; 
 } 
 
@@ -51,23 +56,49 @@ int client(int sock){
 	int choice,valid;
 	//system("clear");
 	printf("\n\n\t\t\tTRAIN RESERVATION SYSTEM\n\n");
-	printf("\t1. Sign In\n");
+	printf("\t1. Log In\n");
 	printf("\t2. Sign Up\n");
 	printf("\t3. Exit\n");
 	printf("\tEnter Your Choice:: ");
 	scanf("%d", &choice);
+
+	//client is writing to the socket for server to read
 	write(sock, &choice, sizeof(choice));
-	if (choice == 1){					// Log in
+	
+	if (choice == 1){					
 		int id,type;
-		char password[50];
+		char password[50],username[50];
+		
+
 		printf("\tlogin id:: ");
 		scanf("%d", &id);
-		strcpy(password,getpass("\tpassword:: "));
-		write(sock, &id, sizeof(id));
-		write(sock, &password, sizeof(password));
+		
+		printf("\tUsername:: ");
+		scanf("%s",username);
+
+		printf("\tPassword:: ");
+		scanf("%s",password);
+		//strcpy(password,getpass("\tpassword:: "));
+
+		struct details temp;
+		strcpy(temp.name,username);
+		strcpy(temp.password,password);
+		temp.id = id;
+		write(sock, &temp, sizeof(temp));
+
+/* 		write(sock, &id, sizeof(id));
+		write(sock, &username, sizeof(username));
+		write(sock, &password, sizeof(password)); */
+		
+		
+
 		read(sock, &valid, sizeof(valid));
+
+
+
+		printf("\n%d\n",valid);
 		if(valid){
-			printf("\tlogin successfully\n");
+			printf("\tLogin successful!!!\n");
 			read(sock,&type,sizeof(type));
 			while(menu(sock,type)!=-1);
 			//system("clear");
@@ -82,14 +113,12 @@ int client(int sock){
 	else if(choice == 2){					// Sign up
 		int type,id;
 		char name[50],password[50],secret_pin[6];
-		system("clear");
+		//system("clear");
 		printf("\n\tEnter The Type Of Account:: \n");
 		printf("\t0. Admin\n\t1. Agent\n\t2. Customer\n");
-		printf("\tYour Response: ");
+		//printf("\tYour Response: ");
 		scanf("%d", &type);
-		printf("\tEnter Your Name: ");
-		scanf("%s", name);
-		strcpy(password,getpass("\tEnter Your Password: "));
+
 
 		if(!type){
 			while(1){
@@ -101,12 +130,26 @@ int client(int sock){
 			}
 		}
 
-		write(sock, &type, sizeof(type));
+		printf("\tEnter Your Name: ");
+		scanf("%s", name);
+
+		//getpass functions gets the password without echoing it.It is a system call
+		strcpy(password,getpass("\tEnter Your Password: "));
+		
+		
+		struct details temp;
+		temp.type = type;
+		strcpy(temp.name,name);
+		strcpy(temp.password,password);
+		write(sock,&temp,sizeof(temp));
+
+/* 		write(sock, &type, sizeof(type));
 		write(sock, &name, sizeof(name));
-		write(sock, &password, strlen(password));
+		write(sock, &password, strlen(password)); */
+
 		
 		read(sock, &id, sizeof(id));
-		printf("\tRemember Your login id For Further Logins as :: %d\n", id);
+		printf("\tSignup Successful and you id is :  %d\n", id);
 		return 2;
 	}
 	else							// Log out
@@ -124,9 +167,11 @@ int menu(int sock,int type){
 		printf("\t3. Update Booking\n");
 		printf("\t4. Cancel booking\n");
 		printf("\t5. Logout\n");
+		
 		printf("\tYour Choice: ");
 		scanf("%d",&choice);
 		write(sock,&choice,sizeof(choice));
+		
 		return user_function(sock,choice);
 	}
 	else if(type==0){					// Admin
@@ -135,30 +180,34 @@ int menu(int sock,int type){
 		printf("\t3. Logout\n");
 		printf("\t Your Choice: ");
 		scanf("%d",&choice);
+		
 		write(sock,&choice,sizeof(choice));
-			if(choice==1){
-				printf("\t1. Add train\n");
-				printf("\t2. View train\n");
-				printf("\t3. Modify train\n");
-				printf("\t4. Delete train\n");
-				printf("\t Your Choice: ");
-				scanf("%d",&choice);	
-				write(sock,&choice,sizeof(choice));
-				return crud_train(sock,choice);
-			}
-			else if(choice==2){
-				printf("\t1. Add User\n");
-				printf("\t2. View all users\n");
-				printf("\t3. Modify user\n");
-				printf("\t4. Delete user\n");
-				printf("\t Your Choice: ");
-				scanf("%d",&choice);
-				write(sock,&choice,sizeof(choice));
-				return crud_user(sock,choice);
+		
+		if(choice==1){
+			printf("\t1. Add train\n");
+			printf("\t2. View train\n");
+			printf("\t3. Modify train\n");
+			printf("\t4. Delete train\n");
+			printf("\t Your Choice: ");
+			scanf("%d",&choice);	
 			
-			}
-			else if(choice==3)
-				return -1;
+			write(sock,&choice,sizeof(choice));
+			
+			return crud_train(sock,choice);
+		}
+		else if(choice==2){
+			printf("\t1. Add User\n");
+			printf("\t2. View all users\n");
+			printf("\t3. Modify user\n");
+			printf("\t4. Delete user\n");
+			printf("\t Your Choice: ");
+			scanf("%d",&choice);
+			write(sock,&choice,sizeof(choice));
+			return crud_user(sock,choice);
+		
+		}
+		else if(choice==3)
+			return -1;
 	}	
 	
 }
@@ -170,6 +219,8 @@ int crud_train(int sock,int choice){
 		char tname[50];
 		printf("\n\tEnter train name: ");
 		scanf("%s",tname);
+
+		//writing train name to be added to socket
 		write(sock, &tname, sizeof(tname));
 		read(sock,&valid,sizeof(valid));	
 		if(valid)
@@ -203,15 +254,19 @@ int crud_train(int sock,int choice){
 	else if (choice==3){			// Update train response
 		int tseats,choice=2,valid=0,tid;
 		char tname[50];
-		write(sock,&choice,sizeof(int));
-		crud_train(sock,choice);
+		
+		//write(sock,&choice,sizeof(int));
+		//crud_train(sock,choice);
+
 		printf("\n\t Enter the train number you want to modify: ");
 		scanf("%d",&tid);
 		write(sock,&tid,sizeof(tid));
 		
+		printf("\nChoose from the below choices which you wish to modify\n");
 		printf("\n\t1. Train Name\n\t2. Total Seats\n");
 		printf("\t Your Choice: ");
 		scanf("%d",&choice);
+		
 		write(sock,&choice,sizeof(choice));
 		
 		if(choice==1){
@@ -236,12 +291,14 @@ int crud_train(int sock,int choice){
 
 	else if(choice==4){				// Delete train response
 		int choice=2,tid,valid=0;
-		write(sock,&choice,sizeof(int));
-		crud_train(sock,choice);
+		//write(sock,&choice,sizeof(int));
+		//crud_train(sock,choice);
 		
 		printf("\n\t Enter the train number you want to delete: ");
 		scanf("%d",&tid);
+		
 		write(sock,&tid,sizeof(tid));
+		
 		read(sock,&valid,sizeof(valid));
 		if(valid)
 			printf("\n\t Train deleted successfully\n");
@@ -297,8 +354,8 @@ int crud_user(int sock,int choice){
 	else if (choice==3){						// Update user
 		int choice=2,valid=0,uid;
 		char name[50],pass[50];
-		write(sock,&choice,sizeof(int));
-		crud_user(sock,choice);
+		//write(sock,&choice,sizeof(int));
+		//crud_user(sock,choice);
 		printf("\n\t Enter the U_id you want to modify: ");
 		scanf("%d",&uid);
 		write(sock,&uid,sizeof(uid));
@@ -340,8 +397,8 @@ int crud_user(int sock,int choice){
 
 	else if(choice==4){						// Delete a user
 		int choice=2,uid,valid=0;
-		write(sock,&choice,sizeof(int));
-		crud_user(sock,choice);
+		//write(sock,&choice,sizeof(int));
+		//crud_user(sock,choice);
 		
 		printf("\n\t Enter the id you want to delete: ");
 		scanf("%d",&uid);
@@ -355,11 +412,16 @@ int crud_user(int sock,int choice){
 
 //-------------------------------- User function to book tickets -----------------------------//
 int user_function(int sock,int choice){
+	//choice has the choice of user about booking,viewing,updating,cancelling tickets
 	int valid =0;
-	if(choice==1){										// Book tickets
+	
+	// Book tickets
+	if(choice==1){										
 		int view=2,tid,seats;
-		write(sock,&view,sizeof(int));
-		crud_train(sock,view);
+
+		//write(sock,&view,sizeof(int));
+		//crud_train(sock,view);
+		
 		printf("\n\tEnter the train number you want to book: ");
 		scanf("%d",&tid);
 		write(sock,&tid,sizeof(tid));
@@ -380,16 +442,18 @@ int user_function(int sock,int choice){
 	else if(choice==2){									// View the bookings
 		int no_of_bookings;
 		int id,tid,seats;
+		char train_name[50];
 		read(sock,&no_of_bookings,sizeof(no_of_bookings));
 
-		printf("\tB_id\tT_no\tSeats\n");
+		printf("\tB_id\tT_no\tTrain Name\tSeats\n");
 		while(no_of_bookings--){
+			read(sock,&train_name,sizeof(train_name));
 			read(sock,&id,sizeof(id));
 			read(sock,&tid,sizeof(tid));
 			read(sock,&seats,sizeof(seats));
 			
 			if(seats!=0)
-				printf("\t%d\t%d\t%d\n",id,tid,seats);
+				printf("\t%d\t%d\t%s\t%d\n",id,tid,train_name,seats);
 		}
 
 		return valid;
@@ -397,7 +461,7 @@ int user_function(int sock,int choice){
 
 	else if(choice==3){									// Update a booking (increment/ decrement seats)
 		int choice = 2,bid,val,valid;
-		user_function(sock,choice);
+		//user_function(sock,choice);
 		printf("\n\t Enter the B_id you want to modify: ");
 		scanf("%d",&bid);
 		write(sock,&bid,sizeof(bid));
@@ -427,7 +491,7 @@ int user_function(int sock,int choice){
 	
 	else if(choice==4){									// Cancel the entire booking
 		int choice = 2,bid,valid;
-		user_function(sock,choice);
+		//user_function(sock,choice);
 		printf("\n\t Enter the B_id you want to cancel: ");
 		scanf("%d",&bid);
 		write(sock,&bid,sizeof(bid));

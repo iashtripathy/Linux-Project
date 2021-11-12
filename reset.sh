@@ -1,5 +1,5 @@
-rm -rf db
-mkdir db
-touch db/db_train
-touch db/db_user
-touch db/db_booking
+rm -rf Databases
+mkdir Databases
+touch Databases/train_details
+touch Databases/user_data
+touch Databases/bookings

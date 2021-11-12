@@ -1,8 +1,3 @@
-/*
-MT2019114
-Server side: concurrent server using fork()
-socket->bind->listen->accept->recv/send->close
-*/
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -15,29 +10,40 @@ socket->bind->listen->accept->recv/send->close
 
 #define PORT 8000
 
-//--------------- structures declaration of train and user------------//
+/*--------------- structures to store train data,user,booking data in database------------*/
 struct train{
 		int train_number;
 		char train_name[50];
 		int total_seats;
 		int available_seats;
-		};
+};
 struct user{
 		int login_id;
 		char password[50];
 		char name[50];
 		int type;
-		};
+};
 
 struct booking{
 		int booking_id;
+		char train_name[50];
 		int type;
 		int uid;
 		int tid;
 		int seats;
-		};
-//---------------------------------------------------------------------//
+};
 
+//This structure is for server is to fetch the data from the pipe during login and signup
+struct details{
+	char name[50];
+	char password[50];
+	int type;
+	int id;
+};
+/*---------------------------------------------------------------------*/
+
+
+/*-------------------------------------- All Function prototype declaration---------------------------------*/
 void service_cli(int sock);
 void login(int client_sock);
 void signup(int client_sock);
@@ -46,15 +52,19 @@ void crud_train(int client_sock);
 void crud_user(int client_sock);
 int user_function(int client_sock,int choice,int type,int id);
    
+/*---------------------------------------End of function prototype------------------------------------------*/
+
 int main(void) {
  
-    int socket_desc, client_sock, c; 
     struct sockaddr_in server, client; 
+	int socket_desc, client_sock, c; 
+    
     char buf[100]; 
   
     socket_desc = socket(AF_INET, SOCK_STREAM, 0); 
     if (socket_desc == -1) { 
-        printf("Could not create socket"); 
+        //printf("Could not create socket");
+		perror("Couldn't create a socket!!!"); 
     } 
   
     server.sin_family = AF_INET; 
@@ -65,28 +75,33 @@ int main(void) {
         perror("bind failed. Error"); 
    
  
+	//max number of clients that can wait in the queue is 3
     listen(socket_desc, 3);  
     c = sizeof(struct sockaddr_in); 
   
+	//For concurrent server to cater to multiple clients at once
     while (1){
 
 	    client_sock = accept(socket_desc, (struct sockaddr*)&client, (socklen_t*)&c); 
 	  
 	    if (!fork()){
 		    close(socket_desc);
-		    service_cli(client_sock);								// Service client, once done client exits
+			// Start serving the client
+		    service_cli(client_sock);								
 		    exit(0);
 	    }
-	    else
+	    else{
 	    	close(client_sock);
+		}
     }
     return 0;
 }
 
 //-------------------- Service every client-----------------------------//
 void service_cli(int sock){
+	//sock has the file descriptor of the client connected
 	int choice;
-	printf("\n\tClient [%d] Connected\n", sock);
+	printf("\n\tFile Descriptor of Client connected is : %d\n", sock);
 	do{
 		read(sock, &choice, sizeof(int));		
 		if(choice==1)
@@ -98,19 +113,30 @@ void service_cli(int sock){
 	}while(1);
 
 	close(sock);
-	printf("\n\tClient [%d] Disconnected\n", sock);
+	printf("\n\tFile Descriptor of the Client Disconnected is : %d\n", sock);
 }
 
 //-------------------- Login function-----------------------------//
 
 void login(int client_sock){
-	int fd_user = open("db/db_user",O_RDWR);
+	int fd_user = open("Databases/user_data",O_RDWR);
 	int id,type,valid=0,user_valid=0;
-	char password[50];
+	char password[50],username[50];
 	struct user u;
-	read(client_sock,&id,sizeof(id));
-	read(client_sock,&password,sizeof(password));
 	
+	struct details temp;
+	read(client_sock,&temp,sizeof(temp));
+	strcpy(username,temp.name);
+	strcpy(password,temp.password);
+	id = temp.id;
+
+	/* read(client_sock,&id,sizeof(id));
+	read(client_sock,&username,sizeof(username));
+	read(client_sock,&password,sizeof(password)); */
+	
+
+	//read(client_sock,&temp,sizeof(temp));
+
 	struct flock lock;
 	
 	lock.l_start = (id-1)*sizeof(struct user);
@@ -121,22 +147,43 @@ void login(int client_sock){
 	lock.l_type = F_WRLCK;
 	fcntl(fd_user,F_SETLKW, &lock);
 	
+	int cnt = 0;
 	while(read(fd_user,&u,sizeof(u))){
-		if(u.login_id==id){
+		printf("|||| %d ||||",cnt++);
+		printf("\n Here I am ,,, u.uname : ----------%s----------- , username : -----------%s---------- ",u.name,username);
+		printf("\n Here I password ,,, u.password : ----------%s----------- , password : -----------%s---------- ",u.password,password);
+		char ch1 = u.password[0];
+		char ch2 = password[0];
+		int flag = 0;
+		int l = 0;
+		while(ch1!='\0' || ch2!='\0'){
+			printf("ch1 : %c",ch1);
+			printf("\tch2 : %c\n",ch2);
+			++l;
+			ch1 = u.password[l];
+			ch2 = password[l];
+
+		}
+		printf("\n");
+		if(!strcmp(u.name,username)){
 			user_valid=1;
-			if(!strcmp(u.password,password)){
+			int res = strcmp(u.password,password);
+			printf("\n%d\n",res);
+			if(res==0){
+				printf("\nInside");
 				valid = 1;
 				type = u.type;
 				break;
 			}
 			else{
 				valid = 0;
-				break;
+				//break;
 			}	
 		}		
 		else{
 			user_valid = 0;
 			valid=0;
+			//break;
 		}
 	}
 	
@@ -147,21 +194,28 @@ void login(int client_sock){
 		fcntl(fd_user, F_SETLK, &lock);
 		close(fd_user);
 	}
+
+	printf("\nUser valid : %d",user_valid);
 	
 	// if valid user, show him menu
 	if(user_valid)
 	{
+		printf("\nInside user valid ,  valid : %d",valid);
 		write(client_sock,&valid,sizeof(valid));
 		if(valid){
 			write(client_sock,&type,sizeof(type));
+			
 			while(menu(client_sock,type,id)!=-1);
+		
 		}
 	}
 	else
 		write(client_sock,&valid,sizeof(valid));
 	
-	// same user is not allowed from multiple terminals.. 
-	// so unlocking his user record after he logs out only to not allow him from other terminal
+	/*
+		same user is not allowed from multiple terminals.. 
+		so unlocking his user record after he logs out only to not allow him from other terminal
+	*/
 	if(type==2){
 		lock.l_type = F_UNLCK;
 		fcntl(fd_user, F_SETLK, &lock);
@@ -172,15 +226,26 @@ void login(int client_sock){
 //-------------------- Signup function-----------------------------//
 
 void signup(int client_sock){
-	int fd_user = open("db/db_user",O_RDWR);
+	int fd_user = open("Databases/user_data",O_RDWR);
 	int type,id=0;
 	char name[50],password[50];
 	struct user u,temp;
 
-	read(client_sock, &type, sizeof(type));
-	read(client_sock, &name, sizeof(name));
-	read(client_sock, &password, sizeof(password));
+	struct details temppp;
+	read(client_sock,&temppp,sizeof(temppp));
 
+	type = temppp.type;
+	strcpy(name,temppp.name);
+	strcpy(password,temppp.password);
+
+/* 	read(client_sock, &type, sizeof(type));
+	read(client_sock, &name, sizeof(name));
+	read(client_sock, &password, sizeof(password)); */
+	
+	
+	//read(client_sock,&temp,sizeof(temp));
+	
+	
 	int fp = lseek(fd_user, 0, SEEK_END);
 
 	struct flock lock;
@@ -199,6 +264,9 @@ void signup(int client_sock){
 		u.login_id = 1;
 		strcpy(u.name, name);
 		strcpy(u.password, password);
+
+
+
 		u.type=type;
 		write(fd_user, &u, sizeof(u));
 		write(client_sock, &u.login_id, sizeof(u.login_id));
@@ -240,7 +308,10 @@ int menu(int client_sock,int type,int id){
 			return -1;
 	}
 	else if(type==2 || type==1){				// For agent and customer
+		
+		//This choice tells about what the customer wants to do whether he want to book tickets or view bookings or update booking or cancel booking
 		read(client_sock,&choice,sizeof(choice));
+		
 		ret = user_function(client_sock,choice,type,id);
 		if(ret!=5)
 			return menu(client_sock,type,id);
@@ -254,14 +325,22 @@ int menu(int client_sock,int type,int id){
 void crud_train(int client_sock){
 	int valid=0;	
 	int choice;
+
+	//fetching the choice of the Admin he made that is passed from client to socket through socket
+	//This choice is to know which CRUD operation is to be performed on the train
 	read(client_sock,&choice,sizeof(choice));
-	if(choice==1){  					// Add train  	
+
+	// Adding train  
+	if(choice==1){  						
 		char tname[50];
 		int tid = 0;
+
+		//reading train name to be added to database
 		read(client_sock,&tname,sizeof(tname));
+		
 		struct train tdb,temp;
 		struct flock lock;
-		int fd_train = open("db/db_train", O_RDWR);
+		int fd_train = open("Databases/train_details", O_RDWR);
 		
 		tdb.train_number = tid;
 		strcpy(tdb.train_name,tname);
@@ -284,6 +363,8 @@ void crud_train(int client_sock){
 			lock.l_type = F_UNLCK;
 			fcntl(fd_train, F_SETLK, &lock);
 			close(fd_train);
+
+			//with the help of valid the server knows whether Train is added or not 
 			write(client_sock, &valid, sizeof(valid));
 		}
 		else{
@@ -292,6 +373,8 @@ void crud_train(int client_sock){
 			read(fd_train, &temp, sizeof(temp));
 			tdb.train_number = temp.train_number + 1;
 			write(fd_train, &tdb, sizeof(tdb));
+
+			//with the help of valid the server knows whether Train is added or not
 			write(client_sock, &valid,sizeof(valid));	
 		}
 		lock.l_type = F_UNLCK;
@@ -303,7 +386,7 @@ void crud_train(int client_sock){
 	else if(choice==2){					// View/ Read trains
 		struct flock lock;
 		struct train tdb;
-		int fd_train = open("db/db_train", O_RDONLY);
+		int fd_train = open("Databases/train_details", O_RDONLY);
 		
 		lock.l_type = F_RDLCK;
 		lock.l_start = 0;
@@ -331,12 +414,13 @@ void crud_train(int client_sock){
 	}
 
 	else if(choice==3){					// Update train
-		crud_train(client_sock);
+		//crud_train(client_sock);
 		int choice,valid=0,tid;
 		struct flock lock;
 		struct train tdb;
-		int fd_train = open("db/db_train", O_RDWR);
+		int fd_train = open("Databases/train_details", O_RDWR);
 
+		//get the train number to be modified
 		read(client_sock,&tid,sizeof(tid));
 
 		lock.l_type = F_WRLCK;
@@ -358,26 +442,35 @@ void crud_train(int client_sock){
 			
 		}
 		else if(choice==2){						// update total number of seats
+			int initial_tot_seats = tdb.total_seats;
 			write(client_sock,&tdb.total_seats,sizeof(tdb.total_seats));
 			read(client_sock,&tdb.total_seats,sizeof(tdb.total_seats));
+			int changed_seats_cnt = tdb.total_seats-initial_tot_seats; 
+			tdb.available_seats+= changed_seats_cnt;
+			
+			
 		}
 	
 		lseek(fd_train, -1*sizeof(struct train), SEEK_CUR);
 		write(fd_train, &tdb, sizeof(struct train));
 		valid=1;
+
+		//We will reach here only if the train details are updated!!
 		write(client_sock,&valid,sizeof(valid));
+
 		lock.l_type = F_UNLCK;
 		fcntl(fd_train, F_SETLK, &lock);
 		close(fd_train);	
 	}
 
 	else if(choice==4){						// Delete train
-		crud_train(client_sock);
+		//crud_train(client_sock);
 		struct flock lock;
 		struct train tdb;
-		int fd_train = open("db/db_train", O_RDWR);
+		int fd_train = open("Databases/train_details", O_RDWR);
 		int tid,valid=0;
 
+		//get the train id that is to be deleted
 		read(client_sock,&tid,sizeof(tid));
 
 		lock.l_type = F_WRLCK;
@@ -416,7 +509,7 @@ void crud_user(int client_sock){
 		
 		struct user udb;
 		struct flock lock;
-		int fd_user = open("db/db_user", O_RDWR);
+		int fd_user = open("Databases/user_data", O_RDWR);
 		int fp = lseek(fd_user, 0, SEEK_END);
 		
 		lock.l_type = F_WRLCK;
@@ -458,7 +551,7 @@ void crud_user(int client_sock){
 	else if(choice==2){					// View user list
 		struct flock lock;
 		struct user udb;
-		int fd_user = open("db/db_user", O_RDONLY);
+		int fd_user = open("Databases/user_data", O_RDONLY);
 		
 		lock.l_type = F_RDLCK;
 		lock.l_start = 0;
@@ -469,7 +562,7 @@ void crud_user(int client_sock){
 		fcntl(fd_user, F_SETLKW, &lock);
 		int fp = lseek(fd_user, 0, SEEK_END);
 		int no_of_users = fp / sizeof(struct user);
-		no_of_users--;
+		no_of_users--; 										//because removing one for Admin
 		write(client_sock, &no_of_users, sizeof(int));
 
 		lseek(fd_user,0,SEEK_SET);
@@ -488,12 +581,12 @@ void crud_user(int client_sock){
 	}
 
 	else if(choice==3){					// Update user
-		crud_user(client_sock);
+		//crud_user(client_sock);
 		int choice,valid=0,uid;
 		char pass[50];
 		struct flock lock;
 		struct user udb;
-		int fd_user = open("db/db_user", O_RDWR);
+		int fd_user = open("Databases/user_data", O_RDWR);
 
 		read(client_sock,&uid,sizeof(uid));
 
@@ -534,10 +627,10 @@ void crud_user(int client_sock){
 	}
 
 	else if(choice==4){						// Delete any particular user
-		crud_user(client_sock);
+		//crud_user(client_sock);
 		struct flock lock;
 		struct user udb;
-		int fd_user = open("db/db_user", O_RDWR);
+		int fd_user = open("Databases/user_data", O_RDWR);
 		int uid,valid=0;
 
 		read(client_sock,&uid,sizeof(uid));
@@ -568,16 +661,21 @@ void crud_user(int client_sock){
 
 //---------------------- User functions -----------------------//
 int user_function(int client_sock,int choice,int type,int id){
+	//choice has the choice of user about booking,viewing,updating,cancelling tickets
 	int valid=0;
-	if(choice==1){						// book ticket
-		crud_train(client_sock);
+
+	// book ticket
+	if(choice==1){						
+		//crud_train(client_sock);
 		struct flock lockt;
 		struct flock lockb;
 		struct train tdb;
 		struct booking bdb;
-		int fd_train = open("db/db_train", O_RDWR);
-		int fd_book = open("db/db_booking", O_RDWR);
+		int fd_train = open("Databases/train_details", O_RDWR);
+		int fd_book = open("Databases/bookings", O_RDWR);
 		int tid,seats;
+
+		//Read the train id which the customer want to book
 		read(client_sock,&tid,sizeof(tid));		
 				
 		lockt.l_type = F_WRLCK;
@@ -595,7 +693,10 @@ int user_function(int client_sock,int choice,int type,int id){
 		fcntl(fd_train, F_SETLKW, &lockt);
 		lseek(fd_train,tid*sizeof(struct train),SEEK_SET);
 		
+		//fetching all the train data 
 		read(fd_train,&tdb,sizeof(tdb));
+
+		//Reading the no of seats client want to book
 		read(client_sock,&seats,sizeof(seats));
 
 		if(tdb.train_number==tid)
@@ -618,6 +719,9 @@ int user_function(int client_sock,int choice,int type,int id){
 				bdb.uid = id;
 				bdb.tid = tid;
 				bdb.seats = seats;
+
+				strcpy(bdb.train_name,tdb.train_name);
+				
 				write(fd_book, &bdb, sizeof(struct booking));
 				lockb.l_type = F_UNLCK;
 				fcntl(fd_book, F_SETLK, &lockb);
@@ -638,9 +742,9 @@ int user_function(int client_sock,int choice,int type,int id){
 	else if(choice==2){							// View bookings
 		struct flock lock;
 		struct booking bdb;
-		int fd_book = open("db/db_booking", O_RDONLY);
+		int fd_book = open("Databases/bookings", O_RDONLY);
 		int no_of_bookings = 0;
-	
+		char train_name[50];
 		lock.l_type = F_RDLCK;
 		lock.l_start = 0;
 		lock.l_len = 0;
@@ -659,6 +763,7 @@ int user_function(int client_sock,int choice,int type,int id){
 
 		while(read(fd_book,&bdb,sizeof(bdb))){
 			if(bdb.uid==id){
+				write(client_sock,&bdb.train_name,50);
 				write(client_sock,&bdb.booking_id,sizeof(int));
 				write(client_sock,&bdb.tid,sizeof(int));
 				write(client_sock,&bdb.seats,sizeof(int));
@@ -672,13 +777,13 @@ int user_function(int client_sock,int choice,int type,int id){
 
 	else if (choice==3){							// update booking
 		int choice = 2,bid,val;
-		user_function(client_sock,choice,type,id);
+		//user_function(client_sock,choice,type,id);
 		struct booking bdb;
 		struct train tdb;
 		struct flock lockb;
 		struct flock lockt;
-		int fd_book = open("db/db_booking", O_RDWR);
-		int fd_train = open("db/db_train", O_RDWR);
+		int fd_book = open("Databases/bookings", O_RDWR);
+		int fd_train = open("Databases/train_details", O_RDWR);
 		read(client_sock,&bid,sizeof(bid));
 
 		lockb.l_type = F_WRLCK;
@@ -735,13 +840,13 @@ int user_function(int client_sock,int choice,int type,int id){
 	}
 	else if(choice==4){							// Cancel an entire booking
 		int choice = 2,bid;
-		user_function(client_sock,choice,type,id);
+		//user_function(client_sock,choice,type,id);
 		struct booking bdb;
 		struct train tdb;
 		struct flock lockb;
 		struct flock lockt;
-		int fd_book = open("db/db_booking", O_RDWR);
-		int fd_train = open("db/db_train", O_RDWR);
+		int fd_book = open("Databases/bookings", O_RDWR);
+		int fd_train = open("Databases/train_details", O_RDWR);
 		read(client_sock,&bid,sizeof(bid));
 
 		lockb.l_type = F_WRLCK;
